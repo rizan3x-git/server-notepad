@@ -368,29 +368,42 @@ export default function App() {
           </button>
         </div>
 
-        {/* Sync Room & Easy Room Switcher */}
-        <div className="p-3 mx-3 mt-3 rounded-xl bg-indigo-950/40 border border-indigo-800/50 flex items-center justify-between">
-          <div 
-            onClick={() => setShowRoomModal(true)}
-            className="flex items-center space-x-2 overflow-hidden cursor-pointer group flex-1 pr-2"
-            title="Click to change Room"
-          >
-            <Key className="w-4 h-4 text-indigo-400 shrink-0 group-hover:text-indigo-300 transition" />
-            <div className="truncate text-xs">
-              <span className="text-slate-400 block text-[10px]">Sync Room (Click to Change):</span>
-              <span className="font-mono text-indigo-200 font-semibold truncate block group-hover:underline">
-                {syncId}
-              </span>
-            </div>
+        {/* Quick Room ID Search & Switcher */}
+        <div className="p-3 mx-3 mt-3 rounded-xl bg-indigo-950/40 border border-indigo-800/50 space-y-2">
+          <div className="flex items-center justify-between text-xs text-indigo-300">
+            <span className="font-medium flex items-center space-x-1">
+              <Key className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Current Room: <strong className="text-white font-mono">{syncId}</strong></span>
+            </span>
+            <button
+              onClick={() => setShowQRModal(true)}
+              className="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-md text-[11px] font-medium flex items-center space-x-1 shadow transition"
+              title="Show QR Code"
+            >
+              <QrCode className="w-3 h-3" />
+              <span>QR</span>
+            </button>
           </div>
-          <button
-            onClick={() => setShowQRModal(true)}
-            className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium flex items-center space-x-1 shadow transition shrink-0"
-            title="Show QR Code for Mobile"
-          >
-            <QrCode className="w-3.5 h-3.5" />
-            <span>QR</span>
-          </button>
+          <div className="flex items-center space-x-1.5">
+            <input
+              type="text"
+              placeholder="Type Room ID & press Enter..."
+              value={customSyncInput}
+              onChange={(e) => setCustomSyncInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleSwitchSyncRoom(customSyncInput);
+                }
+              }}
+              className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 placeholder-slate-500 font-mono focus:outline-none focus:border-indigo-500"
+            />
+            <button
+              onClick={() => handleSwitchSyncRoom(customSyncInput)}
+              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium transition shrink-0"
+            >
+              Open Room
+            </button>
+          </div>
         </div>
 
         {/* Search & New Note */}
