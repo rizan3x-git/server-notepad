@@ -73,7 +73,25 @@ function writeNotes(notes: any[]) {
 app.get('/api/notes', (req, res) => {
   const syncId = (req.query.syncId as string) || 'default-sync-room';
   const notes = readNotes();
-  const roomNotes = notes.filter((n: any) => n.syncId === syncId);
+  let roomNotes = notes.filter((n: any) => n.syncId === syncId);
+
+  // If room has no notes yet, auto-create a starter note so room is never empty
+  if (roomNotes.length === 0) {
+    const starterNote = {
+      id: 'note-' + Date.now(),
+      syncId,
+      title: `Room: ${syncId} 🚀`,
+      content: `# Cloud Sync Room: ${syncId}\n\nWelcome to your synchronized notes room! Notes created here are securely saved and synced between your devices.\n\n- [ ] Write your first note\n- [x] Test mobile QR sync`,
+      category: 'Work',
+      tags: ['sync', 'room'],
+      isPinned: true,
+      updatedAt: new Date().toISOString(),
+    };
+    notes.unshift(starterNote);
+    writeNotes(notes);
+    roomNotes = [starterNote];
+  }
+
   res.json(roomNotes);
 });
 

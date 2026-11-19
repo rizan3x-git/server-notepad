@@ -75,9 +75,13 @@ export default function App() {
     const urlSync = params.get('sync');
     const storedSync = localStorage.getItem('cloudnote_sync_id');
 
-    const activeSync = urlSync || storedSync || 'room-' + Math.random().toString(36).substring(2, 8);
+    const activeSync = urlSync || storedSync || 'default-sync-room';
     setSyncId(activeSync);
     localStorage.setItem('cloudnote_sync_id', activeSync);
+    if (!urlSync) {
+      const newUrl = `${window.location.pathname}?sync=${activeSync}`;
+      window.history.replaceState({}, '', newUrl);
+    }
     setCustomSyncInput(activeSync);
   }, []);
 
