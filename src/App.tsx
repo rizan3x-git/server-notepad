@@ -30,7 +30,9 @@ import {
   BookOpen,
   ArrowRight,
   HelpCircle,
-  ExternalLink
+  ExternalLink,
+  Key,
+  ShieldCheck
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 
@@ -59,6 +61,7 @@ export default function App() {
   
   // UI states
   const [showQRModal, setShowQRModal] = useState(false);
+  const [showRoomModal, setShowRoomModal] = useState(false);
   const [showAIModal, setShowAIModal] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
@@ -66,7 +69,6 @@ export default function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
-  const [copiedNote, setCopiedNote] = useState(false);
   const [customSyncInput, setCustomSyncInput] = useState('');
 
   // Initialize Sync ID from URL params or localStorage
@@ -83,6 +85,20 @@ export default function App() {
       window.history.replaceState({}, '', newUrl);
     }
     setCustomSyncInput(activeSync);
+
+    // Load local cache immediately for instant render without flashing empty
+    const localCache = localStorage.getItem(`cloudnote_notes_${activeSync}`);
+    if (localCache) {
+      try {
+        const parsed = JSON.parse(localCache);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setNotes(parsed);
+          setActiveNoteId(parsed[0].id);
+        }
+      } catch (e) {
+        console.error('Failed to parse local notes cache', e);
+      }
+    }
   }, []);
 
   // Fetch notes on mount and when syncId changes
@@ -91,7 +107,7 @@ export default function App() {
     fetchNotes();
   }, [syncId]);
 
-  // Periodic auto-sync polling (every 4 seconds) to keep mobile & PC in real-time sync
+  // Periodic auto-sync polling (every 4 seconds) between devices
   useEffect(() => {
     if (!syncId) return;
     const interval = setInterval(() => {
@@ -100,6 +116,13 @@ export default function App() {
     return () => clearInterval(interval);
   }, [syncId]);
 
+  // Save notes to localStorage whenever notes change
+  useEffect(() => {
+    if (syncId && notes.length > 0) {
+      localStorage.setItem(`cloudnote_notes_${syncId}`, JSON.stringify(notes));
+    }
+  }, [notes, syncId]);
+
   const fetchNotes = async (isBackground = false) => {
     if (!isBackground) setIsLoading(true);
     else setIsSyncing(true);
@@ -107,15 +130,32 @@ export default function App() {
     try {
       const res = await fetch(`/api/notes?syncId=${encodeURIComponent(syncId)}`);
       if (res.ok) {
-        const data = await res.json();
-        setNotes(data);
-        if (data.length > 0 && !activeNoteId) {
-          setActiveNoteId(data[0].id);
+        const serverNotes = await res.json();
+        if (Array.isArray(serverNotes) && serverNotes.length > 0) {
+          // Merge server notes with local cache (keeping the most recently updated version)
+          setNotes((prevNotes) => {
+            const mergedMap = new Map<string, Note>();
+            // Add server notes first
+            serverNotes.forEach((n: Note) => mergedMap.set(n.id, n));
+            // Add local notes if newer or not present
+            prevNotes.forEach((n: Note) => {
+              const existing = mergedMap.get(n.id);
+              if (!existing || new Date(n.updatedAt).getTime() > new Date(existing.updatedAt).getTime()) {
+                mergedMap.set(n.id, n);
+              }
+            });
+            const finalNotes = Array.from(mergedMap.values());
+            return finalNotes;
+          });
+
+          if (serverNotes.length > 0 && !activeNoteId) {
+            setActiveNoteId(serverNotes[0].id);
+          }
         }
         setLastSynced(new Date());
       }
     } catch (err) {
-      console.error('Failed to fetch notes:', err);
+      console.error('Failed to fetch notes from server, using local cache:', err);
     } finally {
       if (!isBackground) setIsLoading(false);
       setIsSyncing(false);
@@ -136,8 +176,9 @@ export default function App() {
       updatedAt: new Date().toISOString(),
     };
 
-    // Optimistic UI update
-    setNotes(notes.map((n) => (n.id === activeNote.id ? updatedNote : n)));
+    const newNotes = notes.map((n) => (n.id === activeNote.id ? updatedNote : n));
+    setNotes(newNotes);
+    localStorage.setItem(`cloudnote_notes_${syncId}`, JSON.stringify(newNotes));
 
     // Debounced server save
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -151,11 +192,11 @@ export default function App() {
         });
         setLastSynced(new Date());
       } catch (err) {
-        console.error('Failed to save note:', err);
+        console.error('Failed to save note to cloud:', err);
       } finally {
         setIsSyncing(false);
       }
-    }, 500);
+    }, 400);
   };
 
   const handleCreateNewNote = async () => {
@@ -171,9 +212,11 @@ export default function App() {
       updatedAt: new Date().toISOString(),
     };
 
-    setNotes([newNote, ...notes]);
+    const newNotes = [newNote, ...notes];
+    setNotes(newNotes);
     setActiveNoteId(newId);
     setIsMobileMenuOpen(false);
+    localStorage.setItem(`cloudnote_notes_${syncId}`, JSON.stringify(newNotes));
 
     try {
       await fetch('/api/notes', {
@@ -182,7 +225,7 @@ export default function App() {
         body: JSON.stringify(newNote),
       });
     } catch (err) {
-      console.error('Failed to create note:', err);
+      console.error('Failed to create note on cloud:', err);
     }
   };
 
@@ -190,9 +233,11 @@ export default function App() {
     if (e) e.stopPropagation();
     if (!confirm('Are you sure you want to delete this note?')) return;
 
-    setNotes(notes.filter((n) => n.id !== id));
+    const remaining = notes.filter((n) => n.id !== id);
+    setNotes(remaining);
+    localStorage.setItem(`cloudnote_notes_${syncId}`, JSON.stringify(remaining));
+
     if (activeNoteId === id) {
-      const remaining = notes.filter((n) => n.id !== id);
       setActiveNoteId(remaining.length > 0 ? remaining[0].id : null);
     }
 
@@ -201,7 +246,7 @@ export default function App() {
         method: 'DELETE',
       });
     } catch (err) {
-      console.error('Failed to delete note:', err);
+      console.error('Failed to delete note from cloud:', err);
     }
   };
 
@@ -242,12 +287,31 @@ export default function App() {
 
   const handleSwitchSyncRoom = (newRoom: string) => {
     if (!newRoom.trim()) return;
-    const cleanRoom = newRoom.trim().replace(/\s+/g, '-');
+    const cleanRoom = newRoom.trim().replace(/\s+/g, '-').toLowerCase();
     setSyncId(cleanRoom);
     localStorage.setItem('cloudnote_sync_id', cleanRoom);
     const newUrl = `${window.location.pathname}?sync=${cleanRoom}`;
     window.history.replaceState({}, '', newUrl);
     setShowQRModal(false);
+    setShowRoomModal(false);
+    
+    // Load local cache for new room if exists
+    const localCache = localStorage.getItem(`cloudnote_notes_${cleanRoom}`);
+    if (localCache) {
+      try {
+        const parsed = JSON.parse(localCache);
+        if (Array.isArray(parsed)) {
+          setNotes(parsed);
+          if (parsed.length > 0) setActiveNoteId(parsed[0].id);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    } else {
+      setNotes([]);
+      setActiveNoteId(null);
+    }
+    fetchNotes();
   };
 
   // Filtered notes
@@ -304,13 +368,17 @@ export default function App() {
           </button>
         </div>
 
-        {/* Sync Room & QR Quick Connect Banner */}
+        {/* Sync Room & Easy Room Switcher */}
         <div className="p-3 mx-3 mt-3 rounded-xl bg-indigo-950/40 border border-indigo-800/50 flex items-center justify-between">
-          <div className="flex items-center space-x-2 overflow-hidden">
-            <Smartphone className="w-4 h-4 text-indigo-400 shrink-0" />
+          <div 
+            onClick={() => setShowRoomModal(true)}
+            className="flex items-center space-x-2 overflow-hidden cursor-pointer group flex-1 pr-2"
+            title="Click to change Room"
+          >
+            <Key className="w-4 h-4 text-indigo-400 shrink-0 group-hover:text-indigo-300 transition" />
             <div className="truncate text-xs">
-              <span className="text-slate-400 block">Room:</span>
-              <span className="font-mono text-indigo-200 font-semibold truncate block">
+              <span className="text-slate-400 block text-[10px]">Sync Room (Click to Change):</span>
+              <span className="font-mono text-indigo-200 font-semibold truncate block group-hover:underline">
                 {syncId}
               </span>
             </div>
@@ -318,9 +386,10 @@ export default function App() {
           <button
             onClick={() => setShowQRModal(true)}
             className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium flex items-center space-x-1 shadow transition shrink-0"
+            title="Show QR Code for Mobile"
           >
             <QrCode className="w-3.5 h-3.5" />
-            <span>Sync</span>
+            <span>QR</span>
           </button>
         </div>
 
@@ -372,8 +441,8 @@ export default function App() {
           ) : sortedNotes.length === 0 ? (
             <div className="text-center py-12 px-4 text-slate-500 text-sm">
               <FileText className="w-10 h-10 mx-auto mb-2 opacity-40 text-indigo-400" />
-              <p>No notes found.</p>
-              <p className="text-xs text-slate-600 mt-1">Create one or change filter.</p>
+              <p>No notes found in this room.</p>
+              <p className="text-xs text-slate-600 mt-1">Create a note or switch room.</p>
             </div>
           ) : (
             sortedNotes.map((note) => {
@@ -588,7 +657,7 @@ export default function App() {
             </div>
             <h2 className="text-lg font-semibold text-slate-300">No Note Selected</h2>
             <p className="text-sm text-slate-500 max-w-md mt-1 mb-6">
-              Select a note from the sidebar or create a new note to start writing and auto-syncing across devices.
+              Select a note from the sidebar or create a new note in room <span className="text-indigo-400 font-mono">"{syncId}"</span>.
             </p>
             <button
               onClick={handleCreateNewNote}
@@ -600,6 +669,61 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* Room Change Modal */}
+      {showRoomModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl relative animate-in fade-in zoom-in duration-200">
+            <button
+              onClick={() => setShowRoomModal(false)}
+              className="absolute right-4 top-4 text-slate-400 hover:text-white p-1 rounded-lg"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-indigo-950 border border-indigo-800 flex items-center justify-center text-indigo-400">
+                <Key className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="font-bold text-white text-base">Change Sync Room Code</h2>
+                <p className="text-xs text-slate-400">Type the exact same room name on your mobile & PC</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Room Code / Name</label>
+                <input
+                  type="text"
+                  value={customSyncInput}
+                  onChange={(e) => setCustomSyncInput(e.target.value)}
+                  placeholder="e.g. my-private-room"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-slate-200 font-mono focus:outline-none focus:border-indigo-500"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Tip: Use any secret room name (e.g. <span className="text-indigo-400">office-notes</span>) and open it on both your phone and computer to sync instantly.
+                </p>
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-2">
+                <button
+                  onClick={() => setShowRoomModal(false)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-medium transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleSwitchSyncRoom(customSyncInput)}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-medium transition shadow-lg shadow-indigo-600/20"
+                >
+                  Join / Switch Room
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* QR Code / Sync Pairing Modal */}
       {showQRModal && (
@@ -618,7 +742,7 @@ export default function App() {
               </div>
               <h2 className="text-lg font-bold text-white">Cross-Device Cloud Sync</h2>
               <p className="text-xs text-slate-400 mt-1">
-                Scan this QR code with your mobile camera to instantly access and edit these exact notes on your phone!
+                Scan this QR code with your mobile camera to instantly access room <span className="text-indigo-300 font-mono">"{syncId}"</span> on your phone!
               </p>
             </div>
 
@@ -652,23 +776,17 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="pt-2 border-t border-slate-800">
-                <label className="text-xs text-slate-400 block mb-1">Switch or Join Sync Room</label>
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="text"
-                    value={customSyncInput}
-                    onChange={(e) => setCustomSyncInput(e.target.value)}
-                    placeholder="e.g., my-secret-room-123"
-                    className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 placeholder-slate-600 font-mono focus:outline-none focus:border-indigo-500"
-                  />
-                  <button
-                    onClick={() => handleSwitchSyncRoom(customSyncInput)}
-                    className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-indigo-300 rounded-xl text-xs font-medium transition"
-                  >
-                    Switch Room
-                  </button>
-                </div>
+              <div className="pt-2 border-t border-slate-800 flex justify-between items-center">
+                <span className="text-xs text-slate-400">Current Room Code: <strong className="text-indigo-300 font-mono">{syncId}</strong></span>
+                <button
+                  onClick={() => {
+                    setShowQRModal(false);
+                    setShowRoomModal(true);
+                  }}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-indigo-300 rounded-xl text-xs font-medium transition"
+                >
+                  Change Room Name
+                </button>
               </div>
             </div>
           </div>
