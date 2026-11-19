@@ -1,0 +1,6 @@
+{
+  "name": "CloudNote Pro",
+  "description": "Seamless cross-device cloud notepad with real-time auto-sync between mobile and PC, QR code pairing, markdown support, and Gemini AI writing assistant.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
