@@ -107,13 +107,25 @@ export default function App() {
     fetchNotes();
   }, [syncId]);
 
-  // Periodic auto-sync polling (every 4 seconds) between devices
+  // Periodic auto-sync polling (every 2 seconds) and window focus listener between devices
   useEffect(() => {
     if (!syncId) return;
+
+    fetchNotes();
+
     const interval = setInterval(() => {
       fetchNotes(true);
-    }, 4000);
-    return () => clearInterval(interval);
+    }, 2000);
+
+    const handleFocus = () => {
+      fetchNotes(true);
+    };
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
   }, [syncId]);
 
   // Save notes to localStorage whenever notes change
@@ -373,16 +385,26 @@ export default function App() {
           <div className="flex items-center justify-between text-xs text-indigo-300">
             <span className="font-medium flex items-center space-x-1">
               <Key className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Current Room: <strong className="text-white font-mono">{syncId}</strong></span>
+              <span>Room: <strong className="text-white font-mono">{syncId}</strong></span>
             </span>
-            <button
-              onClick={() => setShowQRModal(true)}
-              className="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-md text-[11px] font-medium flex items-center space-x-1 shadow transition"
-              title="Show QR Code"
-            >
-              <QrCode className="w-3 h-3" />
-              <span>QR</span>
-            </button>
+            <div className="flex items-center space-x-1">
+              <button
+                onClick={() => fetchNotes(false)}
+                className="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-md text-[11px] font-medium flex items-center space-x-1 shadow transition"
+                title="Sync Notes Now"
+              >
+                <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
+                <span>Sync</span>
+              </button>
+              <button
+                onClick={() => setShowQRModal(true)}
+                className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-indigo-300 rounded-md text-[11px] font-medium flex items-center space-x-1 shadow transition"
+                title="Show QR Code"
+              >
+                <QrCode className="w-3 h-3" />
+                <span>QR</span>
+              </button>
+            </div>
           </div>
           <div className="flex items-center space-x-1.5">
             <input
